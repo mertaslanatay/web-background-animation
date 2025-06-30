@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Growing Circular Waves</title>
+  <style>
+    /* Define the animated custom property using CSS Houdini */
+    @property --k0 {
+      syntax: '<number>';
+      initial-value: 0;
+      inherits: true;
+    }
+    @keyframes k0 {
+      to { --k0: 1; }
+    }
+
+    /* Reset & full-screen setup */
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: #000;
+    }
+
+    /* Underlying pastel gradient layer */
+    .container {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      background: linear-gradient(90deg,
+        #75D9B4, #AA6B71, #F2896F, #FFB87F, #FFEC72
+      );
+    }
+
+    /* Halftone “growing circular waves” layer */
+    .halftone {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      --k0: 0;
+      animation: k0 7.5s linear infinite;
+      background:
+        /* Growing circular mask */
+        repeating-radial-gradient(
+          circle,
+          #777 calc((var(--k0) - 1) * 20%),
+          #000,
+          #777 calc(var(--k0) * 20%)
+        ),
+        /* Dot pattern */
+        radial-gradient(closest-side, #888, #000) 0/1em 1em space;
+      background-blend-mode: screen;
+      mix-blend-mode: multiply;
+      filter: contrast(21);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="halftone"></div>
+  </div>
+</body>
+</html>

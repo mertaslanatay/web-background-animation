@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Ultra-Trippy Kaleidoscope</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+      background: #000;
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="glcanvas"></canvas>
+
+  <script>
+    // WebGL Initialization
+    const canvas = document.getElementById("glcanvas");
+    const gl = canvas.getContext("webgl");
+    if (!gl) {
+      alert("WebGL not supported");
+      throw new Error("WebGL not supported");
+    }
+
+    // Resize handling
+    function resize() {
+      canvas.width  = window.innerWidth;
+      canvas.height = window.innerHeight;
+      gl.viewport(0, 0, canvas.width, canvas.height);
+    }
+    window.addEventListener("resize", resize);
+    resize();
+
+    // Shader compilation helpers
+    function compileShader(src, type) {
+      const shader = gl.createShader(type);
+      gl.shaderSource(shader, src);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error("Shader compile error:", gl.getShaderInfoLog(shader));
+        gl.deleteShader(shader);
+        return null;
+      }
+      return shader;
+    }
+    function createProgram(vsSrc, fsSrc) {
+      const vs = compileShader(vsSrc, gl.VERTEX_SHADER);
+      const fs = compileShader(fsSrc, gl.FRAGMENT_SHADER);
+      const prog = gl.createProgram();
+      gl.attachShader(prog, vs);
+      gl.attachShader(prog, fs);
+      gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+        console.error("Program link error:", gl.getProgramInfoLog(prog));
+        return null;
+      }
+      return prog;
+    }
+
+    // Full‐screen quad setup
+    const quadVerts = new Float32Array([
+      -1, -1,   1, -1,   -1, 1,
+      -1,  1,   1, -1,    1, 1
+    ]);
+    const quadVBO = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadVBO);
+    gl.bufferData(gl.ARRAY_BUFFER, quadVerts, gl.STATIC_DRAW);
+
+    // Vertex shader
+    const vertexSrc = `
+      attribute vec2 a_position;
+      varying vec2 v_uv;
+      void main() {
+        v_uv = a_position * 0.5 + 0.5;
+        gl_Position = vec4(a_position, 0.0, 1.0);
+      }
+    `;
+
+    // Fragment shader
+    const fragmentSrc = `
+      precision highp float;
+      uniform float u_time;
+      uniform vec2  u_resolution;
+      varying vec2  v_uv;
+      #define PI 3.141592653589793
+
+      // Hash & noise
+      float hash(vec2 p) {
+        p = fract(p * vec2(123.34, 456.21));
+        p += dot(p, p + 78.233);
+        return fract(p.x * p.y);
+      }
+      float noise(vec2 p) {
+        vec2 i = floor(p), f = fract(p);
+        float a = hash(i), b = hash(i + vec2(1.0, 0.0));
+        float c = hash(i + vec2(0.0, 1.0)), d = hash(i + vec2(1.0, 1.0));
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(a, b, u.x)
+             + (c - a) * u.y * (1.0 - u.x)
+             + (d - b) * u.x * u.y;
+      }
+
+      // FBM with 8 octaves
+      float fbm(vec2 p) {
+        float v = 0.0, amp = 0.5;
+        for(int i = 0; i < 8; i++){
+          v += amp * noise(p);
+          p *= 2.0;
+          amp *= 0.5;
+        }
+        return v;
+      }
+
+      // Inigo-style palette
+      vec3 palette(float t) {
+        vec3 a = vec3(0.5);
+        vec3 b = vec3(0.5);
+        vec3 c = vec3(1.0);
+        vec3 d = vec3(0.00, 0.33, 0.67);
+        return a + b * cos(2.0 * PI * (c * t + d));
+      }
+
+      void main(){
+        vec2 uv = v_uv;
+        vec2 p = uv - 0.5;
+        p.x *= u_resolution.x / u_resolution.y;
+
+        // Kaleidoscope segments
+        float segs = mix(3.0, 12.0, sin(u_time * 0.12) * 0.5 + 0.5);
+        float ang = atan(p.y, p.x);
+        float rad = length(p);
+        ang = mod(ang, 2.0 * PI / segs) - (PI / segs);
+        p = rad * vec2(cos(ang), sin(ang));
+
+        // Multi-layered swirl
+        vec2 q = p;
+        for(int i = 0; i < 3; i++){
+          float a = fbm(q * (3.0 + float(i)) + u_time * (0.15 * float(i+1))) * 6.2831;
+          q = mat2(cos(a), -sin(a), sin(a), cos(a)) * q;
+        }
+
+        // Radial FBM distortion
+        float distortion = fbm(q * 5.0 + u_time * 0.3);
+        vec2 finalUv = uv + q * distortion * 0.45;
+
+        // Base pattern + time warp
+        float T = u_time * 0.2;
+        float n = fbm(finalUv * 4.0 + T);
+
+        // Color via palette
+        vec3 col = palette(n + T);
+
+        // Heavy grain
+        float g = (noise(finalUv * u_resolution * 0.5 + u_time) - 0.5) * 0.25;
+        col += g;
+
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `;
+
+    // Compile & link
+    const program = createProgram(vertexSrc, fragmentSrc);
+    gl.useProgram(program);
+
+    // Bind quad & attributes
+    const posLoc = gl.getAttribLocation(program, "a_position");
+    gl.enableVertexAttribArray(posLoc);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadVBO);
+    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+    // Uniform locations
+    const timeLoc = gl.getUniformLocation(program, "u_time");
+    const resLoc  = gl.getUniformLocation(program, "u_resolution");
+
+    // Render loop
+    let start = null;
+    function render(now) {
+      if (!start) start = now;
+      const t = (now - start) * 0.001;
+      gl.uniform1f(timeLoc, t);
+      gl.uniform2f(resLoc, canvas.width, canvas.height);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      requestAnimationFrame(render);
+    }
+    requestAnimationFrame(render);
+  </script>
+</body>
+</html>
